@@ -72,14 +72,19 @@ That assumes MongoDB on this server (`mongodb://127.0.0.1:27017/voting_system`).
 elsewhere or needs a user, give the connection instead:
 `node scripts\createServerEnv.js "mongodb://user:pass@host:27017/voting_system?authSource=admin"`.
 
-**4. Load the data and set the admin password.** The data isn't in git (it holds employee
-records). Copy the exported `database` folder to the server, then:
+**4. Create the admin account.** The server starts with an empty database. This creates
+`admin@votingsystem.com`, or changes its password when it already exists:
 
 ```powershell
-cd C:\inetpub\wwwroot\zbvs\Server
-node C:\path\to\database\db-import.mjs
 node scripts\setPassword.js admin@votingsystem.com     # 12+ characters
 ```
+
+The admin then signs in and sets everything up through the pages:
+
+1. Create the fiscal year with its voting period (Fiscal Years).
+2. Import departments, chiefs, directors, managers and employees.
+3. Add the evaluation criteria and rating matrices (Template).
+4. Set the quotas.
 
 **5. IIS**
 
