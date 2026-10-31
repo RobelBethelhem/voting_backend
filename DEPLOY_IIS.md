@@ -1,16 +1,15 @@
 # Deploying to IIS
 
-The voting system runs on IIS the same way as the self-service app (`/zbss` and `/zbss/api`):
-the frontend and the API are two IIS applications on the same site, so the browser calls the
-API on its own origin.
+The server layout matches the self-service app (`C:\inetpub\wwwroot\zbss`). Both parts are
+installed and updated with `git pull`:
 
-| URL | IIS application | Folder contents |
-| --- | --- | --- |
-| `https://aps2.zemenbank.com/zbvs/` | `zbvs` | frontend build (`voting/build`) |
-| `https://aps2.zemenbank.com/zbvs/api/` | `zbvs/api`, nested in `zbvs` | this repository (iisnode) |
+| Folder | What it is | Git repository | IIS application |
+| --- | --- | --- | --- |
+| `C:\inetpub\wwwroot\zbvs` | frontend repo; the site is its `build\` folder | `voting` | `/zbvs` → `...\zbvs\build` |
+| `C:\inetpub\wwwroot\zbvs\Server` | this repository (iisnode) | `voting_backend` | `/zbvs/api` → `...\zbvs\Server` |
 
-`/zbvs` is only a name. To use another path, change it in three places: the IIS applications,
-`API_PREFIX` in the backend `.env`, and `VITE_API_BASE` when building the frontend.
+The frontend's `build\` is committed, so the server doesn't need to build anything. The site is
+`https://aps2.zemenbank.com/zbvs/`, and it calls the API on the same origin at `/zbvs/api`.
 
 ## How sign-in works
 
@@ -35,40 +34,35 @@ import default passwords are refused.
 
 ## Server prerequisites
 
+The self-service app already needs all of these:
+
 - IIS with **URL Rewrite 2.1** and **iisnode** (x64).
-- **Node.js** 18 or later, installed for all users so `node` is on the system PATH (iisnode runs
-  `node`). Development uses Node 22.
-- **MongoDB**, either on the server or reachable from it, plus the MongoDB Database Tools
-  (`mongodump` and `mongorestore`) for copying data.
-- The server can reach the domain controller on port 389:
-  `Test-NetConnection mbdcp06.zemenbank.local -Port 389`.
+- **Node.js** 18 or later on the system PATH, plus **git**.
+- **MongoDB**, on the server or reachable from it.
+- The server can reach the domain controller: `Test-NetConnection mbdcp06.zemenbank.local -Port 389`.
 
-## 1. Database
+## First installation
 
-Copy the data from the development machine:
+Run in PowerShell as Administrator. `C:\inetpub\wwwroot\zbvs` must be empty, or not exist yet.
 
 ```powershell
-# development machine
-mongodump --db voting_system --archive=voting_system.archive --gzip
+# 1. Get the code
+cd C:\inetpub\wwwroot
+git clone -b iis-deployment https://github.com/RobelBethelhem/voting.git zbvs
+cd zbvs
+git clone -b iis-deployment https://github.com/RobelBethelhem/voting_backend.git Server
 
-# server (add --drop only when replacing a copy that is already there)
-mongorestore --archive=voting_system.archive --gzip
-```
-
-## 2. API (this repository)
-
-```powershell
-git clone https://github.com/RobelBethelhem/voting_backend.git D:\inetpub\zbvs-api
-cd D:\inetpub\zbvs-api
+# 2. Install the API's packages
+cd Server
 npm ci --omit=dev --ignore-scripts
-copy .env.example .env
 mkdir iisnode
 ```
 
 `--ignore-scripts` skips building `canvas`. Nothing uses it, and it has no Windows build for
 current Node versions. `bcrypt` ships a Windows prebuild, so it works without its script.
 
-Edit `.env` on the server. Don't copy the development `.env`:
+**3. Create `C:\inetpub\wwwroot\zbvs\Server\.env`.** It is not in git. Start from
+`.env.example`:
 
 ```ini
 DB=mongodb://127.0.0.1:27017/voting_system
@@ -88,62 +82,64 @@ LOCAL_ADMIN_EMAILS=admin@votingsystem.com
 
 Leave `PORT` out: iisnode gives the app a named pipe.
 
-Then set the local admin password (12 characters or more):
+**4. Load the data and set the admin password.** The data isn't in git (it holds employee
+records). Copy the exported `database` folder to the server, then:
 
 ```powershell
-node scripts/setPassword.js admin@votingsystem.com
+cd C:\inetpub\wwwroot\zbvs\Server
+node C:\path\to\database\db-import.mjs
+node scripts\setPassword.js admin@votingsystem.com     # 12+ characters
 ```
 
-`web.config` sends every request to `run.cjs`, which loads `app.js`. Compared with the
-self-service app's file, it turns iisnode debugging and error pages off, hides `.env`,
-`node_modules` and `iisnode`, and allows 30 MB requests for Excel imports.
-
-## 3. Frontend
-
-Build on the development machine. Use PowerShell or cmd: Git Bash has crashed during this build.
+**5. IIS**
 
 ```powershell
-cd D:\Voting\voting
-npm run build
+Import-Module WebAdministration
+New-WebAppPool -Name zbvs
+Set-ItemProperty IIS:\AppPools\zbvs -Name managedRuntimeVersion -Value ""
+
+# /zbvs serves the build, /zbvs/api runs the API
+# (change "Default Web Site" if aps2 is served by another site)
+New-WebApplication -Site "Default Web Site" -Name zbvs -PhysicalPath C:\inetpub\wwwroot\zbvs\build -ApplicationPool zbvs
+New-WebApplication -Site "Default Web Site\zbvs" -Name api -PhysicalPath C:\inetpub\wwwroot\zbvs\Server -ApplicationPool zbvs
+
+# The API writes Excel uploads and its logs
+icacls C:\inetpub\wwwroot\zbvs\Server\uploads /grant "IIS AppPool\zbvs:(OI)(CI)M"
+icacls C:\inetpub\wwwroot\zbvs\Server\iisnode /grant "IIS AppPool\zbvs:(OI)(CI)M"
 ```
 
-Copy the contents of `build\` (including `web.config`) to `D:\inetpub\zbvs` on the server. The
-build calls the API at `/zbvs/api` (`src/api/base.js`). For another path, put
-`VITE_API_BASE=/other/api` in `.env.production.local` before building.
+In IIS Manager this is:
 
-## 4. IIS
+1. Add the application pool `zbvs` with No Managed Code.
+2. On the site, add an application with alias `zbvs` and path `...\zbvs\build`.
+3. Under `zbvs`, add an application with alias `api` and path `...\zbvs\Server`.
 
-1. Create an application pool `zbvs` with **.NET CLR version: No Managed Code**.
-2. On the site that serves `aps2.zemenbank.com`, add an application with alias `zbvs`, physical
-   path `D:\inetpub\zbvs`, and pool `zbvs`.
-3. Inside `zbvs`, add an application with alias `api`, physical path `D:\inetpub\zbvs-api`,
-   and pool `zbvs`. Its path is `/zbvs/api`.
-4. Give the pool identity `IIS AppPool\zbvs` **Read & execute** on both folders, and **Modify**
-   on `D:\inetpub\zbvs-api\uploads` (Excel imports) and `D:\inetpub\zbvs-api\iisnode` (logs).
+The applications point at `build` and `Server`, so the repository files around them are never
+served. The frontend's `web.config` uses `inheritInChildApplications="false"`, so its settings
+stay out of `/zbvs/api`.
 
-The frontend `web.config` uses `inheritInChildApplications="false"`, so its settings don't
-reach the nested API application.
-
-## 5. Check it
+**6. Check it**
 
 - `https://aps2.zemenbank.com/zbvs/api/fiscal-years/current` returns
-  `401 {"message":"Please sign in"}`. That shows IIS, iisnode and the routes are working.
+  `{"error":true,"message":"Please sign in"}`. That shows IIS, iisnode and the API are working.
 - `https://aps2.zemenbank.com/zbvs/` shows the login page. Sign in with a domain username.
 - Domain login answers "Domain login is unavailable right now": the server can't reach
   `LDAP_URL`. Check port 389 as above.
-- Errors from Node are in `D:\inetpub\zbvs-api\iisnode\`.
+- Errors from Node are in `C:\inetpub\wwwroot\zbvs\Server\iisnode\`.
 
 ## Updating
 
+On the development machine, before pushing a frontend change, run `npm run build` (in
+PowerShell) and commit `build/` with the source. On the server:
+
 ```powershell
-cd D:\inetpub\zbvs-api
+cd C:\inetpub\wwwroot\zbvs
+git pull
+cd Server
 git pull
 npm ci --omit=dev --ignore-scripts   # only when package-lock.json changed
+Restart-WebAppPool zbvs
 ```
-
-Then recycle the `zbvs` application pool. iisnode restarts by itself only when `.env` or a
-top-level `.js` file changes. For the frontend, build again and replace the files in
-`D:\inetpub\zbvs`.
 
 ## Security notes
 
