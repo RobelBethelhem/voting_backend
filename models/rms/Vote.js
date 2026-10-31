@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { fiscalYearPlugin } from "../../utils/fiscalYear.js";
 const Schema = mongoose.Schema;
 
 const voteSchema =  new Schema({
@@ -15,7 +16,6 @@ const voteSchema =  new Schema({
     voter_emp_id: { 
         type: String,
         required: true,
-        unique: true,
         trim: true,
     },
     voter_position:{
@@ -60,38 +60,52 @@ const voteSchema =  new Schema({
         trim: true,
     },
 
-    Dedication: { 
+    // Every peer criterion the voter rated, whatever the admin named it
+    criteria_ratings: [{
+        criteria_id: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'EvaluationCriteria',
+            required: true
+        },
+        criteria_name: {
+            type: String,
+            required: true
+        },
+        weight: {
+            type: Number,
+            required: true
+        },
+        rating: {
+            type: Number,
+            required: true
+        }
+    }],
+
+    // Fixed KPI fields used by votes saved before criteria_ratings existed
+    Dedication: {
         type: Number,
-        required: true,
     },
-    Quality_of_Work: { 
+    Quality_of_Work: {
         type: Number,
-        required: true,
     },
-    Collaboration_Or_Team_Work: { 
+    Collaboration_Or_Team_Work: {
         type: Number,
-        required: true,
     },
-    Independence: { 
+    Independence: {
         type: Number,
-        required: true,
     },
-    Customer_Service: { 
+    Customer_Service: {
         type: Number,
-        required: true,
     },
-    Time_Mgt: { 
+    Time_Mgt: {
         type: Number,
-        required: true,
     },
     Proper_Office_Attire_and_Dress_Code:{
         type: Number,
-        required: true,
     },
 
     Flexibility:{
         type: Number,
-        required: true,
     },
 
     Total_Weight:{
@@ -105,10 +119,13 @@ const voteSchema =  new Schema({
     },
     TimeStamp:{
         type: Date,
-        default: new Date()
+        default: Date.now
     }
     });
 
+    // One vote per voter in each fiscal year
+    voteSchema.plugin(fiscalYearPlugin);
+    voteSchema.index({ voter_emp_id: 1, fiscal_year: 1 }, { unique: true });
 
     const Vote = mongoose.model('Vote', voteSchema);
     export default Vote;

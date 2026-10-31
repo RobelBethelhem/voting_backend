@@ -1,1 +1,14 @@
 node_modules
+
+# Secrets: copy .env.example to .env on each machine
+.env
+
+# iisnode logs (IIS)
+/iisnode
+
+# webpack output (npm run build)
+/dist
+
+# Uploaded Excel files hold employee data; keep only the folder
+uploads/*
+!uploads/.gitkeep
