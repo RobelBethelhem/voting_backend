@@ -61,26 +61,16 @@ mkdir iisnode
 `--ignore-scripts` skips building `canvas`. Nothing uses it, and it has no Windows build for
 current Node versions. `bcrypt` ships a Windows prebuild, so it works without its script.
 
-**3. Create `C:\inetpub\wwwroot\zbvs\Server\.env`.** It is not in git. Start from
-`.env.example`:
+**3. Create `.env`.** It is never in git, because it holds the signing keys. This writes it
+with new random keys and the server settings (`.env.example` lists them):
 
-```ini
-DB=mongodb://127.0.0.1:27017/voting_system
-SALT=10
-# New random values for this server:
-#   node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
-ACCESS_TOKEN_PRIVATE_KEY=<random>
-REFRESH_TOKEN_PRIVATE_KEY=<another random>
-API_PREFIX=/zbvs/api
-CORS_ORIGINS=https://aps2.zemenbank.com
-AUTH_MODE=ldap
-LDAP_URL=ldap://mbdcp06.zemenbank.local:389
-LDAP_DOMAIN=Zemenbank
-EMAIL_DOMAIN=zemenbank.com
-LOCAL_ADMIN_EMAILS=admin@votingsystem.com
+```powershell
+node scripts\createServerEnv.js
 ```
 
-Leave `PORT` out: iisnode gives the app a named pipe.
+That assumes MongoDB on this server (`mongodb://127.0.0.1:27017/voting_system`). If MongoDB runs
+elsewhere or needs a user, give the connection instead:
+`node scripts\createServerEnv.js "mongodb://user:pass@host:27017/voting_system?authSource=admin"`.
 
 **4. Load the data and set the admin password.** The data isn't in git (it holds employee
 records). Copy the exported `database` folder to the server, then:
